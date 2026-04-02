@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Google Sheet Tasks + Checkbox</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 1rem; background: #f7fafc; color: #111827; }
+        h1 { margin-bottom: .3rem; }
+        #status { margin-bottom: .8rem; color: #374151; }
+        #tasks { list-style: none; margin: 0; padding: 0; }
+        #tasks li { display: flex; align-items: flex-start; gap: .5rem; background: white; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: .5rem; padding: .6rem .8rem; }
+        #tasks li code { background: #f3f4f6; display: block; white-space: pre-wrap; word-break: break-word; padding: .25rem .4rem; border-radius: 4px; }
+        #controls { margin-bottom: .7rem; }
+        button { cursor: pointer; border-radius: 6px; border: 1px solid #9ca3af; background: #e5e7eb; padding: .35rem .75rem; }
+        button:hover { background: #d1d5db; }
+    </style>
+</head>
+    <body>
+        <h1>Google Sheet Code-Queue</h1>
+        <div id="status">Warte auf Daten...</div>
+        <div id="controls">
+            <button id="refreshBtn">Jetzt aktualisieren</button>
+            <button id="clearBtn">Lokale Checkmarks zurücksetzen</button>
+        </div>
+        <ul id="tasks"></ul>
+        <script>
+            const sheetId = '1Tti0r9zFTPpGdOEwfqhZOUP18mMflgtwxt-CTrSh_GM';
+            const sheetGid = '0';
+            const range = 'A2:B999';
+            const apiUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&range=${range}&gid=${sheetGid}`;
+
+            const status = document.getElementById('status');
+            const taskList = document.getElementById('tasks');
+            const refreshBtn = document.getElementById('refreshBtn');
+            const clearBtn = document.getElementById('clearBtn');
+
+            function storageKey(rowIndex) {
+                return `sheet-check-${sheetId}-${rowIndex}`;
+            }
+
+            function setStatus(text, error = false) {
+                status.textContent = text;
+                status.style.color = error ? '#dc2626' : '#374151';
+            }
+
+            function saveCheck(rowIndex, checked) {
+                localStorage.setItem(storageKey(rowIndex), checked ? 'true' : 'false');
+            }
+
+            function loadCheck(rowIndex) {
+                return localStorage.getItem(storageKey(rowIndex)) === 'true';
+            }
+
+            function renderTasks(tasks) {
+                taskList.innerHTML = '';
+                if (!tasks.length) {
+                    taskList.insertAdjacentHTML('beforeend', '<li>Keine Einträge gefunden.</li>');
+                    return;
+                }
+
+                tasks.forEach(task => {
+                    const li = document.createElement('li');
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.checked = loadCheck(task.row);
+                    cb.title = 'als erledigt markieren';
+                    cb.addEventListener('change', () => saveCheck(task.row, cb.checked));
+
+                    const text = document.createElement('div');
+                    const line = document.createElement('span');
+                    line.innerHTML = `<strong>#${task.row}</strong> `;
+                    text.appendChild(line);
+
+                    if (task.code) {
+                        const codeEl = document.createElement('code');
+                        codeEl.textContent = task.code;
+                        text.appendChild(codeEl);
+                    }
+
+                    if (task.description) {
+                        const desc = document.createElement('div');
+                        desc.textContent = task.description;
+                        text.appendChild(desc);
+                    }
+
+                    li.appendChild(cb);
+                    li.appendChild(text);
+                    taskList.appendChild(li);
+                });
+            }
+
+            async function loadSheet() {
+                try {
+                    setStatus('Lade Daten aus Google Sheets ...');
+                    const res = await fetch(apiUrl, { cache: 'no-store' });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const txt = await res.text();
+                    const jsonMatch = txt.match(/google\.visualization\.Query\.setResponse\((.*)\);?/s);
+                    if (!jsonMatch) throw new Error('Ungültige Antwort vom Sheet');
+                    const data = JSON.parse(jsonMatch[1]);
+                    const rows = data.table?.rows || [];
+
+                    const tasks = rows.map((r, i) => ({
+                        row: i + 2,
+                        code: r.c?.[0]?.v || '',
+                        description: r.c?.[1]?.v || ''
+                    })).filter(t => t.code || t.description);
+
+                    renderTasks(tasks);
+                    setStatus(`Gefunden: ${tasks.length} Einträge. Letzte Abfrage: ${new Date().toLocaleTimeString()}`);
+                } catch (err) {
+                    setStatus('Fehler beim Laden: ' + err.message, true);
+                }
+            }
+
+            refreshBtn.addEventListener('click', () => loadSheet());
+            clearBtn.addEventListener('click', () => {
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith(`sheet-check-${sheetId}-`))
+                    .forEach(k => localStorage.removeItem(k));
+                loadSheet();
+            });
+
+            loadSheet();
+            setInterval(loadSheet, 15000);
+        </script>
+
+        <h2>Diese Website ist Inofiziel und hat nix mit Minimoli oder LVM zu tun</h2>
+
+    </body>
+</html>
